@@ -31,16 +31,20 @@ public class Mapping {
         this.method = method;
     }
 
-    // Nouvelle méthode pour vérifier si la méthode retourne un String
+    // Vérifier si la méthode retourne un String
     public boolean returnsString() {
         return method.getReturnType().equals(String.class);
     }
 
-    // Nouvelle méthode pour invoquer la méthode
-    public String invoke() throws Exception {
+    // Nouvelle méthode pour vérifier si la méthode retourne un ModelView
+    public boolean returnsModelView() {
+        return method.getReturnType().equals(ModelView.class);
+    }
+
+    // Invoquer la méthode et retourner le résultat
+    public Object invokeMethod() throws Exception {
         Object controllerInstance = controllerClass.getDeclaredConstructor().newInstance();
-        Object result = method.invoke(controllerInstance);
-        return (String) result;
+        return method.invoke(controllerInstance);
     }
 
     @Override
