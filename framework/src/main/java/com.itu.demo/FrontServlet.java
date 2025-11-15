@@ -8,9 +8,6 @@ import javax.servlet.RequestDispatcher;
 import javax.servlet.annotation.WebServlet;
 import java.util.Map;
 
-// import mg.framework.Router;
-// import mg.framework.Mapping;
-
 @WebServlet(name = "FrontServlet", urlPatterns = {"/"}, loadOnStartup = 1)
 public class FrontServlet extends HttpServlet {
     
@@ -72,10 +69,47 @@ public class FrontServlet extends HttpServlet {
         Mapping mapping = router.getMapping(resourcePath);
         
         if (mapping != null) {
-            request.setAttribute("mapping", mapping);
-            request.setAttribute("url", resourcePath);
-            RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/mapping-found.jsp");
-            dispatcher.forward(request, response);
+            // Vérifier si la méthode retourne un String
+            if (mapping.returnsString()) {
+                // Invoquer la méthode et afficher le résultat
+                try {
+                    String result = mapping.invoke();
+                    
+                    response.setContentType("text/html;charset=UTF-8");
+                    PrintWriter out = response.getWriter();
+                    out.println("<!DOCTYPE html>");
+                    out.println("<html>");
+                    out.println("<head>");
+                    out.println("<title>Resultat</title>");
+                    out.println("<style>");
+                    out.println("body { font-family: Arial, sans-serif; padding: 40px; background: #f5f5f5; }");
+                    out.println(".container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }");
+                    out.println("h1 { color: #28a745; }");
+                    out.println(".result { background: #e7f3ff; padding: 20px; border-radius: 5px; margin: 20px 0; }");
+                    out.println(".info { color: #666; font-size: 0.9em; }");
+                    out.println("</style>");
+                    out.println("</head>");
+                    out.println("<body>");
+                    out.println("<div class='container'>");
+                    out.println("<h1>✓ Méthode invoquée avec succès</h1>");
+                    out.println("<div class='info'><strong>URL:</strong> " + resourcePath + "</div>");
+                    out.println("<div class='info'><strong>Classe:</strong> " + mapping.getControllerClass().getName() + "</div>");
+                    out.println("<div class='info'><strong>Méthode:</strong> " + mapping.getMethod().getName() + "()</div>");
+                    out.println("<div class='result'><h3>Résultat:</h3>" + result + "</div>");
+                    out.println("</div>");
+                    out.println("</body>");
+                    out.println("</html>");
+                    
+                } catch (Exception e) {
+                    throw new ServletException("Erreur lors de l'invocation de la méthode", e);
+                }
+            } else {
+                // Méthode ne retourne pas String - afficher seulement les infos
+                request.setAttribute("mapping", mapping);
+                request.setAttribute("url", resourcePath);
+                RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/mapping-found.jsp");
+                dispatcher.forward(request, response);
+            }
         } else {
             request.setAttribute("url", resourcePath);
             request.setAttribute("mappings", router.getUrlMappings());
