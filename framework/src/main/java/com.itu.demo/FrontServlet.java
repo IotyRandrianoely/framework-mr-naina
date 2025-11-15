@@ -69,11 +69,18 @@ public class FrontServlet extends HttpServlet {
         Mapping mapping = router.getMapping(resourcePath);
         
         if (mapping != null) {
-            // Vérifier si la méthode retourne un String
-            if (mapping.returnsString()) {
-                // Invoquer la méthode et afficher le résultat
-                try {
-                    String result = mapping.invoke();
+            try {
+                // Vérifier si la méthode retourne un ModelView
+                if (mapping.returnsModelView()) {
+                    ModelView modelView = (ModelView) mapping.invokeMethod();
+                    String viewPath = "/WEB-INF/views/" + modelView.getView();
+                    
+                    RequestDispatcher dispatcher = request.getRequestDispatcher(viewPath);
+                    dispatcher.forward(request, response);
+                    
+                } else if (mapping.returnsString()) {
+                    // Invoquer la méthode et afficher le résultat
+                    String result = (String) mapping.invokeMethod();
                     
                     response.setContentType("text/html;charset=UTF-8");
                     PrintWriter out = response.getWriter();
@@ -100,15 +107,16 @@ public class FrontServlet extends HttpServlet {
                     out.println("</body>");
                     out.println("</html>");
                     
-                } catch (Exception e) {
-                    throw new ServletException("Erreur lors de l'invocation de la méthode", e);
+                } else {
+                    // Méthode ne retourne ni String ni ModelView - afficher seulement les infos
+                    request.setAttribute("mapping", mapping);
+                    request.setAttribute("url", resourcePath);
+                    RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/mapping-found.jsp");
+                    dispatcher.forward(request, response);
                 }
-            } else {
-                // Méthode ne retourne pas String - afficher seulement les infos
-                request.setAttribute("mapping", mapping);
-                request.setAttribute("url", resourcePath);
-                RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/mapping-found.jsp");
-                dispatcher.forward(request, response);
+                
+            } catch (Exception e) {
+                throw new ServletException("Erreur lors de l'invocation de la méthode", e);
             }
         } else {
             request.setAttribute("url", resourcePath);
