@@ -8,9 +8,6 @@ import javax.servlet.RequestDispatcher;
 import javax.servlet.annotation.WebServlet;
 import java.util.Map;
 
-// import mg.framework.Router;
-// import mg.framework.Mapping;
-
 @WebServlet(name = "FrontServlet", urlPatterns = {"/"}, loadOnStartup = 1)
 public class FrontServlet extends HttpServlet {
     
@@ -29,8 +26,8 @@ public class FrontServlet extends HttpServlet {
         try {
             router.scanAndMap(packageToScan);
             System.out.println("===== URL Mappings =====");
-            for (Map.Entry<String, Mapping> entry : router.getUrlMappings().entrySet()) {
-                System.out.println("URL: " + entry.getKey() + " -> " + entry.getValue());
+            for (Mapping mapping : router.getMappings()) {
+                System.out.println("Pattern: " + mapping.getUrlPattern().getPattern() + " -> " + mapping);
             }
             System.out.println("========================");
         } catch (Exception e) {
@@ -72,13 +69,17 @@ public class FrontServlet extends HttpServlet {
         Mapping mapping = router.getMapping(resourcePath);
         
         if (mapping != null) {
+            // Extraire les paramètres d'URL
+            Map<String, String> params = router.extractParams(resourcePath, mapping);
+            
             request.setAttribute("mapping", mapping);
             request.setAttribute("url", resourcePath);
+            request.setAttribute("urlParams", params);  // Nouveau: paramètres extraits
             RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/mapping-found.jsp");
             dispatcher.forward(request, response);
         } else {
             request.setAttribute("url", resourcePath);
-            request.setAttribute("mappings", router.getUrlMappings());
+            request.setAttribute("mappings", router.getMappings());
             RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/mapping-not-found.jsp");
             dispatcher.forward(request, response);
         }
