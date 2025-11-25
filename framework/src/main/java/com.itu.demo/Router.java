@@ -4,53 +4,70 @@ import mg.framework.annotations.HandleURL;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 public class Router {
-    private List<Mapping> mappings;  // Changé de Map vers List pour permettre le matching
+    private Map<String, Mapping> urlMappings;
 
     public Router() {
-        this.mappings = new ArrayList<>();
+        // LinkedHashMap pour préserver l'ordre d'insertion (priorité de matching)
+        this.urlMappings = new LinkedHashMap<>();
     }
 
-    public void addMapping(String urlPattern, Mapping mapping) {
-        // Vérifier les conflits de pattern
-        for (Mapping existingMapping : mappings) {
-            if (existingMapping.getUrlPattern().getPattern().equals(urlPattern)) {
-                throw new RuntimeException("URL pattern déjà mappé: " + urlPattern + 
-                    ". Conflit entre " + existingMapping + " et " + mapping);
-            }
+    public void addMapping(String url, Mapping mapping) {
+        if (urlMappings.containsKey(url)) {
+            throw new RuntimeException("URL déjà mappée: " + url + 
+                ". Conflit entre " + urlMappings.get(url) + " et " + mapping);
         }
-        mappings.add(mapping);
+        urlMappings.put(url, mapping);
     }
 
     /**
-     * Recherche un mapping qui correspond à l'URL donnée
-     * Retourne le premier mapping dont le pattern match
+     * Recherche un mapping :
+     * 1) tentative d'égalité exacte
+     * 2) parcours des mappings et test du pattern via URLPattern.matches(...)
      */
     public Mapping getMapping(String url) {
-        for (Mapping mapping : mappings) {
-            if (mapping.getUrlPattern().matches(url)) {
-                return mapping;
+        // 1) match exact
+        Mapping exact = urlMappings.get(url);
+        if (exact != null) return exact;
+
+        // 2) match par pattern
+        for (Entry<String, Mapping> e : urlMappings.entrySet()) {
+            Mapping m = e.getValue();
+            if (m != null && m.getUrlPattern() != null && m.getUrlPattern().matches(url)) {
+                return m;
             }
         }
         return null;
     }
 
     /**
-     * Extrait les paramètres d'URL pour un mapping donné
+     * Retourne les mappings (pratique pour affichage / debug dans FrontServlet)
+     */
+    public List<Mapping> getMappings() {
+        return new ArrayList<>(urlMappings.values());
+    }
+
+    /**
+     * Expose la Map si besoin
+     */
+    public Map<String, Mapping> getUrlMappings() {
+        return urlMappings;
+    }
+
+    /**
+     * Extrait les paramètres d'URL pour un mapping donné (ex: id=1 pour /etudiant/{id})
      */
     public Map<String, String> extractParams(String url, Mapping mapping) {
-        if (mapping != null) {
+        if (mapping != null && mapping.getUrlPattern() != null) {
             return mapping.getUrlPattern().extractParams(url);
         }
         return new HashMap<>();
-    }
-
-    public List<Mapping> getMappings() {
-        return mappings;
     }
 
     public void scanAndMap(String packageName) throws Exception {
@@ -62,11 +79,12 @@ public class Router {
             
             for (Method method : methods) {
                 HandleURL annotation = method.getAnnotation(HandleURL.class);
-                String urlPattern = annotation.value();
+                String url = annotation.value();
                 
-                if (urlPattern != null && !urlPattern.isEmpty()) {
-                    Mapping mapping = new Mapping(controller, method, urlPattern);
-                    addMapping(urlPattern, mapping);
+                if (url != null && !url.isEmpty()) {
+                    // Construire le Mapping en incluant le pattern pour pouvoir matcher dynamiquement
+                    Mapping mapping = new Mapping(controller, method, url);
+                    addMapping(url, mapping);
                 }
             }
         }
