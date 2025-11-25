@@ -3,54 +3,31 @@ package com.itu.demo;
 import mg.framework.annotations.HandleURL;
 
 import java.lang.reflect.Method;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 public class Router {
-    private List<Mapping> mappings;  // Changé de Map vers List pour permettre le matching
+    private Map<String, Mapping> urlMappings;
 
     public Router() {
-        this.mappings = new ArrayList<>();
+        this.urlMappings = new HashMap<>();
     }
 
-    public void addMapping(String urlPattern, Mapping mapping) {
-        // Vérifier les conflits de pattern
-        for (Mapping existingMapping : mappings) {
-            if (existingMapping.getUrlPattern().getPattern().equals(urlPattern)) {
-                throw new RuntimeException("URL pattern déjà mappé: " + urlPattern + 
-                    ". Conflit entre " + existingMapping + " et " + mapping);
-            }
+    public void addMapping(String url, Mapping mapping) {
+        if (urlMappings.containsKey(url)) {
+            throw new RuntimeException("URL déjà mappée: " + url + 
+                ". Conflit entre " + urlMappings.get(url) + " et " + mapping);
         }
-        mappings.add(mapping);
+        urlMappings.put(url, mapping);
     }
 
-    /**
-     * Recherche un mapping qui correspond à l'URL donnée
-     * Retourne le premier mapping dont le pattern match
-     */
     public Mapping getMapping(String url) {
-        for (Mapping mapping : mappings) {
-            if (mapping.getUrlPattern().matches(url)) {
-                return mapping;
-            }
-        }
-        return null;
+        return urlMappings.get(url);
     }
 
-    /**
-     * Extrait les paramètres d'URL pour un mapping donné
-     */
-    public Map<String, String> extractParams(String url, Mapping mapping) {
-        if (mapping != null) {
-            return mapping.getUrlPattern().extractParams(url);
-        }
-        return new HashMap<>();
-    }
-
-    public List<Mapping> getMappings() {
-        return mappings;
+    public Map<String, Mapping> getUrlMappings() {
+        return urlMappings;
     }
 
     public void scanAndMap(String packageName) throws Exception {
@@ -62,11 +39,11 @@ public class Router {
             
             for (Method method : methods) {
                 HandleURL annotation = method.getAnnotation(HandleURL.class);
-                String urlPattern = annotation.value();
+                String url = annotation.value();
                 
-                if (urlPattern != null && !urlPattern.isEmpty()) {
-                    Mapping mapping = new Mapping(controller, method, urlPattern);
-                    addMapping(urlPattern, mapping);
+                if (url != null && !url.isEmpty()) {
+                    Mapping mapping = new Mapping(controller, method);
+                    addMapping(url, mapping);
                 }
             }
         }
