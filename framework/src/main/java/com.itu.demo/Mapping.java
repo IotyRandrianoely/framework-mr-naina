@@ -6,13 +6,19 @@ import java.lang.reflect.Method;
 public class Mapping {
     private Class<?> controllerClass;
     private Method method;
+    private URLPattern urlPattern;  // Nouveau: au lieu de String url
 
     public Mapping() {
     }
-
     public Mapping(Class<?> controllerClass, Method method) {
         this.controllerClass = controllerClass;
         this.method = method;
+    }
+
+    public Mapping(Class<?> controllerClass, Method method, String urlPattern) {
+        this.controllerClass = controllerClass;
+        this.method = method;
+        this.urlPattern = new URLPattern(urlPattern);
     }
 
     public Class<?> getControllerClass() {
@@ -31,20 +37,12 @@ public class Mapping {
         this.method = method;
     }
 
-    // Vérifier si la méthode retourne un String
-    public boolean returnsString() {
-        return method.getReturnType().equals(String.class);
+    public URLPattern getUrlPattern() {
+        return urlPattern;
     }
 
-    // Nouvelle méthode pour vérifier si la méthode retourne un ModelView
-    public boolean returnsModelView() {
-        return method.getReturnType().equals(ModelView.class);
-    }
-
-    // Invoquer la méthode et retourner le résultat
-    public Object invokeMethod() throws Exception {
-        Object controllerInstance = controllerClass.getDeclaredConstructor().newInstance();
-        return method.invoke(controllerInstance);
+    public void setUrlPattern(URLPattern urlPattern) {
+        this.urlPattern = urlPattern;
     }
 
     @Override
@@ -52,7 +50,7 @@ public class Mapping {
         return "Mapping{" +
                 "controllerClass=" + controllerClass.getName() +
                 ", method=" + method.getName() +
-                ", returnType=" + method.getReturnType().getSimpleName() +
+                ", urlPattern=" + urlPattern +
                 '}';
     }
 }
