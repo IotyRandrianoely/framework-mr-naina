@@ -71,8 +71,15 @@ public class FrontServlet extends HttpServlet {
         Mapping mapping = router.getMapping(resourcePath);
         
         if (mapping != null) {
-            // Extraire les paramètres d'URL
+            // Extraire les paramètres d'URL (path params: /etudiant/{id})
             Map<String, String> params = router.extractParams(resourcePath, mapping);
+            
+            // Ajouter les paramètres de requête (query params: ?id=2)
+            java.util.Enumeration<String> paramNames = request.getParameterNames();
+            while (paramNames.hasMoreElements()) {
+                String paramName = paramNames.nextElement();
+                params.put(paramName, request.getParameter(paramName));
+            }
             
             try {
                 // Invoquer la méthode avec injection des paramètres
@@ -119,14 +126,44 @@ public class FrontServlet extends HttpServlet {
         Object[] args = new Object[paramTypes.length];
         
         if (paramTypes.length > 0) {
-            // Récupérer les noms des paramètres du pattern d'URL
-            List<String> paramNames = mapping.getUrlPattern().getParamNames();
+            List<String> paramNames = (mapping.getUrlPattern() != null) 
+                ? mapping.getUrlPattern().getParamNames() 
+                : new java.util.ArrayList<>();
             
             for (int i = 0; i < paramTypes.length; i++) {
-                String paramName = (i < paramNames.size()) ? paramNames.get(i) : null;
-                String paramValue = (paramName != null) ? params.get(paramName) : null;
+                String paramName = null;
+                String paramValue = null;
                 
-                if (paramValue != null) {
+                // 1) Chercher dans les paramètres du pattern d'URL (ex: {id})
+                if (i < paramNames.size()) {
+                    paramName = paramNames.get(i);
+                    paramValue = params.get(paramName);
+                }
+                
+                // 2) Si pas trouvé, chercher par le nom du paramètre de la méthode via reflection
+                if (paramValue == null && paramName == null) {
+                    try {
+                        java.lang.reflect.Parameter[] methodParams = method.getParameters();
+                        if (i < methodParams.length) {
+                            paramName = methodParams[i].getName();
+                            paramValue = params.get(paramName);
+                        }
+                    } catch (Exception e) {
+                        System.out.println("WARN: Impossible d'accéder aux noms de paramètres via reflection. Assurez-vous de compiler avec -parameters");
+                    }
+                }
+                
+                // 3) Vérifier si le paramètre a été trouvé
+                if (paramValue == null) {
+                    throw new ServletException(
+                        "Paramètre manquant: '" + (paramName != null ? paramName : "arg" + i) + "' " +
+                        "pour la méthode " + method.getDeclaringClass().getSimpleName() + "." + method.getName() + "(). " +
+                        "Paramètres disponibles: " + params.keySet()
+                    );
+                }
+                
+                // 4) Convertir et assigner la valeur
+                try {
                     if (paramTypes[i] == int.class || paramTypes[i] == Integer.class) {
                         args[i] = Integer.parseInt(paramValue);
                     } else if (paramTypes[i] == String.class) {
@@ -135,7 +172,15 @@ public class FrontServlet extends HttpServlet {
                         args[i] = Double.parseDouble(paramValue);
                     } else if (paramTypes[i] == boolean.class || paramTypes[i] == Boolean.class) {
                         args[i] = Boolean.parseBoolean(paramValue);
+                    } else if (paramTypes[i] == long.class || paramTypes[i] == Long.class) {
+                        args[i] = Long.parseLong(paramValue);
                     }
+                } catch (NumberFormatException ex) {
+                    throw new ServletException(
+                        "Conversion échouée: Impossible de convertir '" + paramValue + 
+                        "' en " + paramTypes[i].getSimpleName() + 
+                        " pour le paramètre '" + paramName + "'"
+                    );
                 }
             }
         }

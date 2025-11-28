@@ -3,9 +3,9 @@ setlocal EnableDelayedExpansion
 
 REM Configuration des variables
 SET "ROOT_DIR=%~dp0"
-SET "SRC_DIR=%ROOT_DIR%sprint6\src\main\java"
+SET "SRC_DIR=%ROOT_DIR%sprint6-bis\src\main\java"
 SET "BUILD_DIR=%ROOT_DIR%buildjar"
-SET "LIB_DIR=%ROOT_DIR%sprint6\lib"
+SET "LIB_DIR=%ROOT_DIR%sprint6-bis\lib"
 SET "JAR_NAME=FirstServletFramework.jar"
 SET "SERVLET_API_JAR=%LIB_DIR%\servlet-api.jar"
 
@@ -22,8 +22,8 @@ for /r "%SRC_DIR%" %%i in (*.java) do (
     set "SOURCES=!SOURCES! "%%i""
 )
 
-REM Compilation avec encodage UTF-8
-javac -encoding UTF-8 -cp "%SERVLET_API_JAR%" -d "%BUILD_DIR%" %SOURCES%
+REM Compilation avec encodage UTF-8 ET flag -parameters
+javac -encoding UTF-8 -parameters -cp "%SERVLET_API_JAR%" -d "%BUILD_DIR%" %SOURCES%
 
 if errorlevel 1 (
     echo Erreur de compilation
