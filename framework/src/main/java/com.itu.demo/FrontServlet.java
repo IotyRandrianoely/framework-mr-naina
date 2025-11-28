@@ -134,16 +134,25 @@ public class FrontServlet extends HttpServlet {
                 String paramName = null;
                 String paramValue = null;
                 
-                // 1) Chercher dans les paramètres du pattern d'URL (ex: {id})
-                if (i < paramNames.size()) {
+                // 1) Chercher l'annotation @Param sur le paramètre
+                java.lang.reflect.Parameter[] methodParams = method.getParameters();
+                if (i < methodParams.length) {
+                    mg.framework.annotations.Param paramAnnotation = methodParams[i].getAnnotation(mg.framework.annotations.Param.class);
+                    if (paramAnnotation != null) {
+                        paramName = paramAnnotation.value();
+                        paramValue = params.get(paramName);
+                    }
+                }
+                
+                // 2) Chercher dans les paramètres du pattern d'URL (ex: {id})
+                if (paramValue == null && paramName == null && i < paramNames.size()) {
                     paramName = paramNames.get(i);
                     paramValue = params.get(paramName);
                 }
                 
-                // 2) Si pas trouvé, chercher par le nom du paramètre de la méthode via reflection
+                // 3) Si pas trouvé, chercher par le nom du paramètre de la méthode via reflection
                 if (paramValue == null && paramName == null) {
                     try {
-                        java.lang.reflect.Parameter[] methodParams = method.getParameters();
                         if (i < methodParams.length) {
                             paramName = methodParams[i].getName();
                             paramValue = params.get(paramName);
@@ -153,7 +162,7 @@ public class FrontServlet extends HttpServlet {
                     }
                 }
                 
-                // 3) Vérifier si le paramètre a été trouvé
+                // 4) Vérifier si le paramètre a été trouvé
                 if (paramValue == null) {
                     throw new ServletException(
                         "Paramètre manquant: '" + (paramName != null ? paramName : "arg" + i) + "' " +
@@ -162,7 +171,7 @@ public class FrontServlet extends HttpServlet {
                     );
                 }
                 
-                // 4) Convertir et assigner la valeur
+                // 5) Convertir et assigner la valeur
                 try {
                     if (paramTypes[i] == int.class || paramTypes[i] == Integer.class) {
                         args[i] = Integer.parseInt(paramValue);
