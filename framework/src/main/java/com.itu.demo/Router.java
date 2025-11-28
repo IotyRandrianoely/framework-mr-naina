@@ -3,15 +3,19 @@ package com.itu.demo;
 import mg.framework.annotations.HandleURL;
 
 import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 public class Router {
     private Map<String, Mapping> urlMappings;
 
     public Router() {
-        this.urlMappings = new HashMap<>();
+        // LinkedHashMap pour préserver l'ordre d'insertion (priorité de matching)
+        this.urlMappings = new LinkedHashMap<>();
     }
 
     public void addMapping(String url, Mapping mapping) {
@@ -22,12 +26,48 @@ public class Router {
         urlMappings.put(url, mapping);
     }
 
+    /**
+     * Recherche un mapping :
+     * 1) tentative d'égalité exacte
+     * 2) parcours des mappings et test du pattern via URLPattern.matches(...)
+     */
     public Mapping getMapping(String url) {
-        return urlMappings.get(url);
+        // 1) match exact
+        Mapping exact = urlMappings.get(url);
+        if (exact != null) return exact;
+
+        // 2) match par pattern
+        for (Entry<String, Mapping> e : urlMappings.entrySet()) {
+            Mapping m = e.getValue();
+            if (m != null && m.getUrlPattern() != null && m.getUrlPattern().matches(url)) {
+                return m;
+            }
+        }
+        return null;
     }
 
+    /**
+     * Retourne les mappings (pratique pour affichage / debug dans FrontServlet)
+     */
+    public List<Mapping> getMappings() {
+        return new ArrayList<>(urlMappings.values());
+    }
+
+    /**
+     * Expose la Map si besoin
+     */
     public Map<String, Mapping> getUrlMappings() {
         return urlMappings;
+    }
+
+    /**
+     * Extrait les paramètres d'URL pour un mapping donné (ex: id=1 pour /etudiant/{id})
+     */
+    public Map<String, String> extractParams(String url, Mapping mapping) {
+        if (mapping != null && mapping.getUrlPattern() != null) {
+            return mapping.getUrlPattern().extractParams(url);
+        }
+        return new HashMap<>();
     }
 
     public void scanAndMap(String packageName) throws Exception {
@@ -42,7 +82,8 @@ public class Router {
                 String url = annotation.value();
                 
                 if (url != null && !url.isEmpty()) {
-                    Mapping mapping = new Mapping(controller, method);
+                    // Construire le Mapping en incluant le pattern pour pouvoir matcher dynamiquement
+                    Mapping mapping = new Mapping(controller, method, url);
                     addMapping(url, mapping);
                 }
             }
