@@ -7,6 +7,8 @@ import javax.servlet.http.*;
 import javax.servlet.RequestDispatcher;
 import javax.servlet.annotation.WebServlet;
 import java.util.Map;
+import java.util.List;
+import java.lang.reflect.Method;
 
 @WebServlet(name = "FrontServlet", urlPatterns = {"/"}, loadOnStartup = 1)
 public class FrontServlet extends HttpServlet {
@@ -26,8 +28,8 @@ public class FrontServlet extends HttpServlet {
         try {
             router.scanAndMap(packageToScan);
             System.out.println("===== URL Mappings =====");
-            for (Map.Entry<String, Mapping> entry : router.getUrlMappings().entrySet()) {
-                System.out.println("URL: " + entry.getKey() + " -> " + entry.getValue());
+            for (Mapping mapping : router.getMappings()) {
+                System.out.println("Pattern: " + mapping.getUrlPattern().getPattern() + " -> " + mapping);
             }
             System.out.println("========================");
         } catch (Exception e) {
@@ -69,67 +71,75 @@ public class FrontServlet extends HttpServlet {
         Mapping mapping = router.getMapping(resourcePath);
         
         if (mapping != null) {
+            // Extraire les paramètres d'URL
+            Map<String, String> params = router.extractParams(resourcePath, mapping);
+            
             try {
-                // Vérifier si la méthode retourne un ModelView
-                if (mapping.returnsModelView()) {
-                    ModelView modelView = (ModelView) mapping.invokeMethod();
-                    
-                    // Copier les données du ModelView dans les attributs de la requête
-                    if (modelView.getData() != null) {
-                        for (Map.Entry<String, Object> entry : modelView.getData().entrySet()) {
+                // Invoquer la méthode avec injection des paramètres
+                Object result = invokeMethodWithParams(mapping, params);
+                
+                // Passer le résultat au JSP
+                if (result instanceof ModelView) {
+                    ModelView mv = (ModelView) result;
+                    if (mv.getData() != null) {
+                        for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
                             request.setAttribute(entry.getKey(), entry.getValue());
                         }
                     }
-                    
-                    String viewPath = "/WEB-INF/views/" + modelView.getView();
-                    RequestDispatcher dispatcher = request.getRequestDispatcher(viewPath);
+                    request.setAttribute("urlParams", params);
+                    RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/" + mv.getView());
                     dispatcher.forward(request, response);
-                    
-                } else if (mapping.returnsString()) {
-                    // Invoquer la méthode et afficher le résultat
-                    String result = (String) mapping.invokeMethod();
-                    
+                    return;
+                } else if (result instanceof String) {
                     response.setContentType("text/html;charset=UTF-8");
-                    PrintWriter out = response.getWriter();
-                    out.println("<!DOCTYPE html>");
-                    out.println("<html>");
-                    out.println("<head>");
-                    out.println("<title>Resultat</title>");
-                    out.println("<style>");
-                    out.println("body { font-family: Arial, sans-serif; padding: 40px; background: #f5f5f5; }");
-                    out.println(".container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }");
-                    out.println("h1 { color: #28a745; }");
-                    out.println(".result { background: #e7f3ff; padding: 20px; border-radius: 5px; margin: 20px 0; }");
-                    out.println(".info { color: #666; font-size: 0.9em; }");
-                    out.println("</style>");
-                    out.println("</head>");
-                    out.println("<body>");
-                    out.println("<div class='container'>");
-                    out.println("<h1>✓ Méthode invoquée avec succès</h1>");
-                    out.println("<div class='info'><strong>URL:</strong> " + resourcePath + "</div>");
-                    out.println("<div class='info'><strong>Classe:</strong> " + mapping.getControllerClass().getName() + "</div>");
-                    out.println("<div class='info'><strong>Méthode:</strong> " + mapping.getMethod().getName() + "()</div>");
-                    out.println("<div class='result'><h3>Résultat:</h3>" + result + "</div>");
-                    out.println("</div>");
-                    out.println("</body>");
-                    out.println("</html>");
-                    
-                } else {
-                    // Méthode ne retourne ni String ni ModelView - afficher seulement les infos
-                    request.setAttribute("mapping", mapping);
-                    request.setAttribute("url", resourcePath);
-                    RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/mapping-found.jsp");
-                    dispatcher.forward(request, response);
+                    response.getWriter().println(result);
+                    return;
                 }
-                
             } catch (Exception e) {
-                throw new ServletException("Erreur lors de l'invocation de la méthode", e);
+                throw new ServletException("Erreur d'invocation", e);
             }
+            
+            request.setAttribute("mapping", mapping);
+            request.setAttribute("url", resourcePath);
+            request.setAttribute("urlParams", params);
+            RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/mapping-found.jsp");
+            dispatcher.forward(request, response);
         } else {
             request.setAttribute("url", resourcePath);
-            request.setAttribute("mappings", router.getUrlMappings());
+            request.setAttribute("mappings", router.getMappings());
             RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/mapping-not-found.jsp");
             dispatcher.forward(request, response);
         }
+    }
+    
+    // Nouvelle méthode pour invoquer avec injection des paramètres
+    private Object invokeMethodWithParams(Mapping mapping, Map<String, String> params) throws Exception {
+        Method method = mapping.getMethod();
+        Class<?>[] paramTypes = method.getParameterTypes();
+        Object[] args = new Object[paramTypes.length];
+        
+        if (paramTypes.length > 0) {
+            // Récupérer les noms des paramètres du pattern d'URL
+            List<String> paramNames = mapping.getUrlPattern().getParamNames();
+            
+            for (int i = 0; i < paramTypes.length; i++) {
+                String paramName = (i < paramNames.size()) ? paramNames.get(i) : null;
+                String paramValue = (paramName != null) ? params.get(paramName) : null;
+                
+                if (paramValue != null) {
+                    if (paramTypes[i] == int.class || paramTypes[i] == Integer.class) {
+                        args[i] = Integer.parseInt(paramValue);
+                    } else if (paramTypes[i] == String.class) {
+                        args[i] = paramValue;
+                    } else if (paramTypes[i] == double.class || paramTypes[i] == Double.class) {
+                        args[i] = Double.parseDouble(paramValue);
+                    } else if (paramTypes[i] == boolean.class || paramTypes[i] == Boolean.class) {
+                        args[i] = Boolean.parseBoolean(paramValue);
+                    }
+                }
+            }
+        }
+        
+        return method.invoke(mapping.getControllerClass().newInstance(), args);
     }
 }
