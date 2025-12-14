@@ -3,9 +3,9 @@ setlocal EnableDelayedExpansion
 
 REM Configuration des variables
 SET "ROOT_DIR=%~dp0"
-SET "SRC_DIR=%ROOT_DIR%sprint6-bis\src\main\java"
+SET "SRC_DIR=%ROOT_DIR%sprint6-ter\src\main\java"
 SET "BUILD_DIR=%ROOT_DIR%buildjar"
-SET "LIB_DIR=%ROOT_DIR%sprint6-bis\lib"
+SET "LIB_DIR=%ROOT_DIR%sprint6-ter\lib"
 SET "JAR_NAME=FirstServletFramework.jar"
 SET "SERVLET_API_JAR=%LIB_DIR%\servlet-api.jar"
 
