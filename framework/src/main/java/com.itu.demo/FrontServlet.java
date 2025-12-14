@@ -171,10 +171,11 @@ public class FrontServlet extends HttpServlet {
     }
     
     /**
-     * Sprint 8: Invoque la méthode du contrôleur avec injection automatique
+     * Sprint 8bis: Invoque la méthode du contrôleur avec injection automatique
      * Supporte:
      * - Map<String, Object> (injection complète des paramètres)
      * - Types primitifs individuels (int, double, String, etc.)
+     * - Objets métiers (binding automatique avec convention objet.propriété)
      */
     private Object invokeMethodWithParams(Mapping mapping, java.util.Map<String, Object> allParams) throws Exception {
         Method method = mapping.getMethod();
@@ -191,6 +192,9 @@ public class FrontServlet extends HttpServlet {
             ? mapping.getUrlPattern().getParamNames() 
             : new java.util.ArrayList<>();
         
+        // Grouper les paramètres par préfixe pour le binding d'objets
+        java.util.Map<String, java.util.Map<String, Object>> groupedParams = groupParametersByPrefix(allParams);
+        
         for (int i = 0; i < paramTypes.length; i++) {
             Class<?> paramType = paramTypes[i];
             
@@ -201,27 +205,42 @@ public class FrontServlet extends HttpServlet {
                 continue;
             }
             
-            // CAS 2: Injection de paramètres individuels
+            // Récupérer le nom du paramètre
             String paramName = null;
+            try {
+                java.lang.reflect.Parameter[] methodParams = method.getParameters();
+                if (i < methodParams.length) {
+                    paramName = methodParams[i].getName();
+                }
+            } catch (Exception e) {
+                // Fallback sur l'index de l'URL pattern
+                if (i < urlParamNames.size()) {
+                    paramName = urlParamNames.get(i);
+                }
+            }
+            
+            // ✅ Sprint 8bis: CAS 2 - Binding automatique d'objet métier
+            if (!isPrimitiveOrWrapper(paramType) && paramType != String.class) {
+                // Vérifier si on a des paramètres groupés pour cet objet
+                if (paramName != null && groupedParams.containsKey(paramName)) {
+                    args[i] = bindObject(paramType, groupedParams.get(paramName));
+                    System.out.println("Sprint 8bis: Binding automatique de l'objet " + paramName + " (" + paramType.getSimpleName() + ")");
+                    continue;
+                }
+            }
+            
+            // CAS 3: Injection de paramètres primitifs individuels
             Object paramValue = null;
             
             // Essayer de récupérer depuis l'URL pattern
             if (i < urlParamNames.size()) {
-                paramName = urlParamNames.get(i);
-                paramValue = allParams.get(paramName);
+                String urlParamName = urlParamNames.get(i);
+                paramValue = allParams.get(urlParamName);
             }
             
-            // Sinon, essayer avec reflection
-            if (paramValue == null) {
-                try {
-                    java.lang.reflect.Parameter[] methodParams = method.getParameters();
-                    if (i < methodParams.length) {
-                        paramName = methodParams[i].getName();
-                        paramValue = allParams.get(paramName);
-                    }
-                } catch (Exception e) {
-                    System.err.println("WARN: Impossible d'obtenir le nom du paramètre via reflection");
-                }
+            // Sinon utiliser le paramName
+            if (paramValue == null && paramName != null) {
+                paramValue = allParams.get(paramName);
             }
             
             // Si toujours null, erreur
@@ -239,6 +258,110 @@ public class FrontServlet extends HttpServlet {
         }
         
         return method.invoke(mapping.getControllerClass().newInstance(), args);
+    }
+    
+    /**
+     * Sprint 8bis: Groupe les paramètres de la requête par préfixe d'objet
+     * Exemple: {"emp.nom": "John", "emp.age": "30", "i": "5"}
+     * → {"emp": {"nom": "John", "age": "30"}, "i": {"i": "5"}}
+     */
+    private java.util.Map<String, java.util.Map<String, Object>> groupParametersByPrefix(
+            java.util.Map<String, Object> allParams) {
+        
+        java.util.Map<String, java.util.Map<String, Object>> grouped = new java.util.HashMap<>();
+        
+        for (Map.Entry<String, Object> entry : allParams.entrySet()) {
+            String key = entry.getKey();
+            Object value = entry.getValue();
+            
+            // Vérifier si le paramètre suit la convention "objet.propriete"
+            if (key.contains(".")) {
+                String[] parts = key.split("\\.", 2);
+                String objectName = parts[0];
+                String propertyName = parts[1];
+                
+                // Créer ou récupérer le groupe pour cet objet
+                if (!grouped.containsKey(objectName)) {
+                    grouped.put(objectName, new java.util.HashMap<>());
+                }
+                
+                grouped.get(objectName).put(propertyName, value);
+            } else {
+                // Paramètre simple, créer un groupe avec le même nom
+                java.util.Map<String, Object> simpleGroup = new java.util.HashMap<>();
+                simpleGroup.put(key, value);
+                grouped.put(key, simpleGroup);
+            }
+        }
+        
+        return grouped;
+    }
+    
+    /**
+     * Sprint 8bis: Instancie et remplit un objet métier à partir de paramètres
+     * Utilise la réflexion pour setter les propriétés de l'objet
+     */
+    private Object bindObject(Class<?> targetClass, java.util.Map<String, Object> properties) 
+            throws Exception {
+        
+        // Créer une nouvelle instance de l'objet
+        Object instance = targetClass.newInstance();
+        
+        // Pour chaque propriété, trouver le setter et l'invoquer
+        for (Map.Entry<String, Object> entry : properties.entrySet()) {
+            String propertyName = entry.getKey();
+            Object propertyValue = entry.getValue();
+            
+            // Construire le nom du setter (ex: "nom" → "setNom")
+            String setterName = "set" + Character.toUpperCase(propertyName.charAt(0)) + 
+                               propertyName.substring(1);
+            
+            // Chercher le setter correspondant
+            Method setter = findSetter(targetClass, setterName, propertyValue);
+            
+            if (setter != null) {
+                // Convertir la valeur au type attendu
+                Class<?> paramType = setter.getParameterTypes()[0];
+                Object convertedValue = convertParameter(propertyValue, paramType, propertyName);
+                
+                // Invoquer le setter
+                setter.invoke(instance, convertedValue);
+                System.out.println("  → Propriété " + propertyName + " = " + convertedValue);
+            } else {
+                System.err.println("WARN: Setter " + setterName + " introuvable pour " + 
+                                  targetClass.getSimpleName() + "." + propertyName);
+            }
+        }
+        
+        return instance;
+    }
+    
+    /**
+     * Sprint 8bis: Trouve un setter compatible dans une classe
+     */
+    private Method findSetter(Class<?> clazz, String setterName, Object value) {
+        for (Method method : clazz.getMethods()) {
+            if (method.getName().equals(setterName) && 
+                method.getParameterCount() == 1) {
+                return method;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Sprint 8bis: Vérifie si un type est primitif ou wrapper
+     */
+    private boolean isPrimitiveOrWrapper(Class<?> type) {
+        return type.isPrimitive() || 
+               type == Integer.class || 
+               type == Long.class || 
+               type == Double.class || 
+               type == Float.class || 
+               type == Boolean.class || 
+               type == Character.class || 
+               type == Byte.class || 
+               type == Short.class;
     }
     
     /**
