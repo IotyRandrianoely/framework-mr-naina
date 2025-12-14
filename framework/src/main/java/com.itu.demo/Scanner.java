@@ -1,7 +1,6 @@
 package com.itu.demo;
 
-import mg.framework.annotations.Controller;
-import mg.framework.annotations.HandleURL;
+import mg.framework.annotations.*;
 
 import java.io.File;
 import java.lang.reflect.Method;
@@ -58,13 +57,102 @@ public class Scanner {
         return controllers;
     }
     
+    /**
+     * Retourne toutes les méthodes annotées avec @HandleURL, @GetMapping, @PostMapping, 
+     * @PutMapping, @DeleteMapping ou @RequestMapping
+     */
     public static List<Method> getHandleURLMethods(Class<?> clazz) {
         List<Method> methods = new ArrayList<>();
         for (Method method : clazz.getDeclaredMethods()) {
-            if (method.isAnnotationPresent(HandleURL.class)) {
+            if (method.isAnnotationPresent(HandleURL.class) ||
+                method.isAnnotationPresent(GetMapping.class) ||
+                method.isAnnotationPresent(PostMapping.class) ||
+                method.isAnnotationPresent(PutMapping.class) ||
+                method.isAnnotationPresent(DeleteMapping.class) ||
+                method.isAnnotationPresent(RequestMapping.class)) {
                 methods.add(method);
             }
         }
         return methods;
+    }
+    
+    /**
+     * Extrait l'URL et les méthodes HTTP d'une méthode annotée
+     */
+    public static MappingInfo extractMappingInfo(Method method, Class<?> controllerClass) {
+        String url = null;
+        List<String> httpMethods = new ArrayList<>();
+        
+        // Récupérer le préfixe du controller si @RequestMapping est présent sur la classe
+        String controllerPrefix = "";
+        if (controllerClass.isAnnotationPresent(RequestMapping.class)) {
+            RequestMapping classMapping = controllerClass.getAnnotation(RequestMapping.class);
+            controllerPrefix = classMapping.value();
+        }
+        
+        // Vérifier @GetMapping
+        if (method.isAnnotationPresent(GetMapping.class)) {
+            GetMapping annotation = method.getAnnotation(GetMapping.class);
+            url = controllerPrefix + annotation.value();
+            httpMethods.add("GET");
+        }
+        // Vérifier @PostMapping
+        else if (method.isAnnotationPresent(PostMapping.class)) {
+            PostMapping annotation = method.getAnnotation(PostMapping.class);
+            url = controllerPrefix + annotation.value();
+            httpMethods.add("POST");
+        }
+        // Vérifier @PutMapping
+        else if (method.isAnnotationPresent(PutMapping.class)) {
+            PutMapping annotation = method.getAnnotation(PutMapping.class);
+            url = controllerPrefix + annotation.value();
+            httpMethods.add("PUT");
+        }
+        // Vérifier @DeleteMapping
+        else if (method.isAnnotationPresent(DeleteMapping.class)) {
+            DeleteMapping annotation = method.getAnnotation(DeleteMapping.class);
+            url = controllerPrefix + annotation.value();
+            httpMethods.add("DELETE");
+        }
+        // Vérifier @RequestMapping
+        else if (method.isAnnotationPresent(RequestMapping.class)) {
+            RequestMapping annotation = method.getAnnotation(RequestMapping.class);
+            url = controllerPrefix + annotation.value();
+            String[] methods = annotation.method();
+            if (methods.length > 0) {
+                for (String m : methods) {
+                    httpMethods.add(m.toUpperCase());
+                }
+            }
+        }
+        // Vérifier @HandleURL (rétrocompatibilité)
+        else if (method.isAnnotationPresent(HandleURL.class)) {
+            HandleURL annotation = method.getAnnotation(HandleURL.class);
+            url = controllerPrefix + annotation.value();
+            // HandleURL accepte toutes les méthodes HTTP
+        }
+        
+        return new MappingInfo(url, httpMethods);
+    }
+    
+    /**
+     * Classe interne pour retourner les informations de mapping
+     */
+    public static class MappingInfo {
+        private String url;
+        private List<String> httpMethods;
+        
+        public MappingInfo(String url, List<String> httpMethods) {
+            this.url = url;
+            this.httpMethods = httpMethods;
+        }
+        
+        public String getUrl() {
+            return url;
+        }
+        
+        public List<String> getHttpMethods() {
+            return httpMethods;
+        }
     }
 }

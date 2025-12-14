@@ -29,7 +29,10 @@ public class FrontServlet extends HttpServlet {
             router.scanAndMap(packageToScan);
             System.out.println("===== URL Mappings =====");
             for (Mapping mapping : router.getMappings()) {
-                System.out.println("Pattern: " + mapping.getUrlPattern().getPattern() + " -> " + mapping);
+                System.out.println("Pattern: " + mapping.getUrlPattern().getPattern() + 
+                                 " [" + mapping.getHttpMethods() + "] -> " + 
+                                 mapping.getControllerClass().getSimpleName() + "." + 
+                                 mapping.getMethod().getName() + "()");
             }
             System.out.println("========================");
         } catch (Exception e) {
@@ -49,11 +52,24 @@ public class FrontServlet extends HttpServlet {
         processRequest(request, response);
     }
     
+    @Override
+    protected void doPut(HttpServletRequest request, HttpServletResponse response) 
+            throws ServletException, IOException {
+        processRequest(request, response);
+    }
+    
+    @Override
+    protected void doDelete(HttpServletRequest request, HttpServletResponse response) 
+            throws ServletException, IOException {
+        processRequest(request, response);
+    }
+    
     protected void processRequest(HttpServletRequest request, HttpServletResponse response) 
             throws ServletException, IOException {
         String requestURI = request.getRequestURI();
         String contextPath = request.getContextPath();
         String resourcePath = requestURI.substring(contextPath.length());
+        String httpMethod = request.getMethod();  // GET, POST, PUT, DELETE, etc.
         
         try {
             java.net.URL resource = getServletContext().getResource(resourcePath);
@@ -68,7 +84,7 @@ public class FrontServlet extends HttpServlet {
             // Continuer le traitement
         }
         
-        Mapping mapping = router.getMapping(resourcePath);
+        Mapping mapping = router.getMapping(resourcePath, httpMethod);
         
         if (mapping != null) {
             // Extraire les paramètres d'URL (path params: /etudiant/{id})
@@ -108,11 +124,13 @@ public class FrontServlet extends HttpServlet {
             
             request.setAttribute("mapping", mapping);
             request.setAttribute("url", resourcePath);
+            request.setAttribute("httpMethod", httpMethod);
             request.setAttribute("urlParams", params);
             RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/mapping-found.jsp");
             dispatcher.forward(request, response);
         } else {
             request.setAttribute("url", resourcePath);
+            request.setAttribute("httpMethod", httpMethod);
             request.setAttribute("mappings", router.getMappings());
             RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/mapping-not-found.jsp");
             dispatcher.forward(request, response);
@@ -134,13 +152,11 @@ public class FrontServlet extends HttpServlet {
                 String paramName = null;
                 String paramValue = null;
                 
-                // 1) Chercher dans les paramètres du pattern d'URL (ex: {id})
                 if (i < paramNames.size()) {
                     paramName = paramNames.get(i);
                     paramValue = params.get(paramName);
                 }
                 
-                // 2) Si pas trouvé, chercher par le nom du paramètre de la méthode via reflection
                 if (paramValue == null && paramName == null) {
                     try {
                         java.lang.reflect.Parameter[] methodParams = method.getParameters();
@@ -149,11 +165,10 @@ public class FrontServlet extends HttpServlet {
                             paramValue = params.get(paramName);
                         }
                     } catch (Exception e) {
-                        System.out.println("WARN: Impossible d'accéder aux noms de paramètres via reflection. Assurez-vous de compiler avec -parameters");
+                        System.out.println("WARN: Impossible d'accéder aux noms de paramètres via reflection.");
                     }
                 }
                 
-                // 3) Vérifier si le paramètre a été trouvé
                 if (paramValue == null) {
                     throw new ServletException(
                         "Paramètre manquant: '" + (paramName != null ? paramName : "arg" + i) + "' " +
@@ -162,7 +177,6 @@ public class FrontServlet extends HttpServlet {
                     );
                 }
                 
-                // 4) Convertir et assigner la valeur
                 try {
                     if (paramTypes[i] == int.class || paramTypes[i] == Integer.class) {
                         args[i] = Integer.parseInt(paramValue);
