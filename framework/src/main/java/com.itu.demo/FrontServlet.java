@@ -66,10 +66,15 @@ public class FrontServlet extends HttpServlet {
     
     protected void processRequest(HttpServletRequest request, HttpServletResponse response) 
             throws ServletException, IOException {
+        
+        // Définir l'encodage UTF-8
+        request.setCharacterEncoding("UTF-8");
+        response.setCharacterEncoding("UTF-8");
+        
         String requestURI = request.getRequestURI();
         String contextPath = request.getContextPath();
         String resourcePath = requestURI.substring(contextPath.length());
-        String httpMethod = request.getMethod();  // GET, POST, PUT, DELETE, etc.
+        String httpMethod = request.getMethod();
         
         try {
             java.net.URL resource = getServletContext().getResource(resourcePath);
@@ -87,48 +92,76 @@ public class FrontServlet extends HttpServlet {
         Mapping mapping = router.getMapping(resourcePath, httpMethod);
         
         if (mapping != null) {
-            // Extraire les paramètres d'URL (path params: /etudiant/{id})
-            Map<String, String> params = router.extractParams(resourcePath, mapping);
+            // Extraire les paramètres d'URL (path params: /products/{id})
+            Map<String, String> pathParams = router.extractParams(resourcePath, mapping);
             
-            // Ajouter les paramètres de requête (query params: ?id=2)
-            java.util.Enumeration<String> paramNames = request.getParameterNames();
-            while (paramNames.hasMoreElements()) {
-                String paramName = paramNames.nextElement();
-                params.put(paramName, request.getParameter(paramName));
+            // Sprint 8: Créer une Map<String, Object> avec TOUS les paramètres
+            java.util.Map<String, Object> allParams = new java.util.HashMap<>();
+            
+            // Ajouter les path params
+            allParams.putAll(pathParams);
+            
+            // Ajouter les query params et form params depuis request.getParameterMap()
+            Map<String, String[]> parameterMap = request.getParameterMap();
+            for (Map.Entry<String, String[]> entry : parameterMap.entrySet()) {
+                String key = entry.getKey();
+                String[] values = entry.getValue();
+                
+                // Si un seul paramètre, on stocke la String directement
+                // Sinon on stocke le tableau String[]
+                if (values != null && values.length > 0) {
+                    if (values.length == 1) {
+                        allParams.put(key, values[0]);
+                    } else {
+                        allParams.put(key, values);
+                    }
+                }
             }
             
             try {
-                // Invoquer la méthode avec injection des paramètres
-                Object result = invokeMethodWithParams(mapping, params);
+                // Sprint 8: Invoquer avec injection automatique de Map<String, Object>
+                Object result = invokeMethodWithParams(mapping, allParams);
                 
-                // Passer le résultat au JSP
+                // Traiter le résultat
                 if (result instanceof ModelView) {
                     ModelView mv = (ModelView) result;
+                    
+                    // Sprint 8: Copier mv.getData() dans les attributs de requête
                     if (mv.getData() != null) {
                         for (Map.Entry<String, Object> entry : mv.getData().entrySet()) {
                             request.setAttribute(entry.getKey(), entry.getValue());
                         }
                     }
-                    request.setAttribute("urlParams", params);
+                    
+                    // Ajouter les urlParams pour accès dans JSP
+                    request.setAttribute("urlParams", pathParams);
+                    
+                    // Forward vers la vue
                     RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/" + mv.getView());
                     dispatcher.forward(request, response);
                     return;
+                    
                 } else if (result instanceof String) {
                     response.setContentType("text/html;charset=UTF-8");
                     response.getWriter().println(result);
                     return;
                 }
+                
             } catch (Exception e) {
-                throw new ServletException("Erreur d'invocation", e);
+                e.printStackTrace();
+                throw new ServletException("Erreur lors de l'invocation: " + e.getMessage(), e);
             }
             
+            // Fallback
             request.setAttribute("mapping", mapping);
             request.setAttribute("url", resourcePath);
             request.setAttribute("httpMethod", httpMethod);
-            request.setAttribute("urlParams", params);
+            request.setAttribute("urlParams", pathParams);
             RequestDispatcher dispatcher = request.getRequestDispatcher("/WEB-INF/views/mapping-found.jsp");
             dispatcher.forward(request, response);
+            
         } else {
+            // Aucun mapping trouvé
             request.setAttribute("url", resourcePath);
             request.setAttribute("httpMethod", httpMethod);
             request.setAttribute("mappings", router.getMappings());
@@ -137,68 +170,120 @@ public class FrontServlet extends HttpServlet {
         }
     }
     
-    // Nouvelle méthode pour invoquer avec injection des paramètres
-    private Object invokeMethodWithParams(Mapping mapping, Map<String, String> params) throws Exception {
+    /**
+     * Sprint 8: Invoque la méthode du contrôleur avec injection automatique
+     * Supporte:
+     * - Map<String, Object> (injection complète des paramètres)
+     * - Types primitifs individuels (int, double, String, etc.)
+     */
+    private Object invokeMethodWithParams(Mapping mapping, java.util.Map<String, Object> allParams) throws Exception {
         Method method = mapping.getMethod();
         Class<?>[] paramTypes = method.getParameterTypes();
         Object[] args = new Object[paramTypes.length];
         
-        if (paramTypes.length > 0) {
-            List<String> paramNames = (mapping.getUrlPattern() != null) 
-                ? mapping.getUrlPattern().getParamNames() 
-                : new java.util.ArrayList<>();
+        if (paramTypes.length == 0) {
+            // Méthode sans paramètre
+            return method.invoke(mapping.getControllerClass().newInstance());
+        }
+        
+        // Récupérer les noms des paramètres de l'URL pattern
+        List<String> urlParamNames = (mapping.getUrlPattern() != null) 
+            ? mapping.getUrlPattern().getParamNames() 
+            : new java.util.ArrayList<>();
+        
+        for (int i = 0; i < paramTypes.length; i++) {
+            Class<?> paramType = paramTypes[i];
             
-            for (int i = 0; i < paramTypes.length; i++) {
-                String paramName = null;
-                String paramValue = null;
-                
-                if (i < paramNames.size()) {
-                    paramName = paramNames.get(i);
-                    paramValue = params.get(paramName);
-                }
-                
-                if (paramValue == null && paramName == null) {
-                    try {
-                        java.lang.reflect.Parameter[] methodParams = method.getParameters();
-                        if (i < methodParams.length) {
-                            paramName = methodParams[i].getName();
-                            paramValue = params.get(paramName);
-                        }
-                    } catch (Exception e) {
-                        System.out.println("WARN: Impossible d'accéder aux noms de paramètres via reflection.");
-                    }
-                }
-                
-                if (paramValue == null) {
-                    throw new ServletException(
-                        "Paramètre manquant: '" + (paramName != null ? paramName : "arg" + i) + "' " +
-                        "pour la méthode " + method.getDeclaringClass().getSimpleName() + "." + method.getName() + "(). " +
-                        "Paramètres disponibles: " + params.keySet()
-                    );
-                }
-                
+            // ✅ Sprint 8: CAS 1 - Injection d'une Map<String, Object> complète
+            if (java.util.Map.class.isAssignableFrom(paramType)) {
+                args[i] = allParams;
+                System.out.println("Sprint 8: Injection de Map<String, Object> avec " + allParams.size() + " paramètres");
+                continue;
+            }
+            
+            // CAS 2: Injection de paramètres individuels
+            String paramName = null;
+            Object paramValue = null;
+            
+            // Essayer de récupérer depuis l'URL pattern
+            if (i < urlParamNames.size()) {
+                paramName = urlParamNames.get(i);
+                paramValue = allParams.get(paramName);
+            }
+            
+            // Sinon, essayer avec reflection
+            if (paramValue == null) {
                 try {
-                    if (paramTypes[i] == int.class || paramTypes[i] == Integer.class) {
-                        args[i] = Integer.parseInt(paramValue);
-                    } else if (paramTypes[i] == String.class) {
-                        args[i] = paramValue;
-                    } else if (paramTypes[i] == double.class || paramTypes[i] == Double.class) {
-                        args[i] = Double.parseDouble(paramValue);
-                    } else if (paramTypes[i] == boolean.class || paramTypes[i] == Boolean.class) {
-                        args[i] = Boolean.parseBoolean(paramValue);
-                    } else if (paramTypes[i] == long.class || paramTypes[i] == Long.class) {
-                        args[i] = Long.parseLong(paramValue);
+                    java.lang.reflect.Parameter[] methodParams = method.getParameters();
+                    if (i < methodParams.length) {
+                        paramName = methodParams[i].getName();
+                        paramValue = allParams.get(paramName);
                     }
-                } catch (NumberFormatException ex) {
-                    throw new ServletException(
-                        "Conversion échouée: Impossible de convertir '" + paramValue + 
-                        "' en " + paramTypes[i].getSimpleName() + 
-                        " pour le paramètre '" + paramName + "'"
-                    );
+                } catch (Exception e) {
+                    System.err.println("WARN: Impossible d'obtenir le nom du paramètre via reflection");
                 }
             }
+            
+            // Si toujours null, erreur
+            if (paramValue == null) {
+                throw new ServletException(
+                    "Paramètre manquant: '" + (paramName != null ? paramName : "param" + i) + "' " +
+                    "pour la méthode " + method.getDeclaringClass().getSimpleName() + "." + 
+                    method.getName() + "(). " +
+                    "Paramètres disponibles: " + allParams.keySet()
+                );
+            }
+            
+            // Conversion du type
+            args[i] = convertParameter(paramValue, paramType, paramName);
         }
         
         return method.invoke(mapping.getControllerClass().newInstance(), args);
+    }
+    
+    /**
+     * Convertit un paramètre vers le type attendu
+     */
+    private Object convertParameter(Object value, Class<?> targetType, String paramName) 
+            throws ServletException {
+        
+        if (value == null) {
+            return null;
+        }
+        
+        String stringValue = value.toString().trim();
+        
+        try {
+            // Types numériques
+            if (targetType == int.class || targetType == Integer.class) {
+                return stringValue.isEmpty() ? 0 : Integer.parseInt(stringValue);
+            }
+            if (targetType == long.class || targetType == Long.class) {
+                return stringValue.isEmpty() ? 0L : Long.parseLong(stringValue);
+            }
+            if (targetType == double.class || targetType == Double.class) {
+                return stringValue.isEmpty() ? 0.0 : Double.parseDouble(stringValue);
+            }
+            if (targetType == float.class || targetType == Float.class) {
+                return stringValue.isEmpty() ? 0.0f : Float.parseFloat(stringValue);
+            }
+            if (targetType == boolean.class || targetType == Boolean.class) {
+                return Boolean.parseBoolean(stringValue);
+            }
+            
+            // String
+            if (targetType == String.class) {
+                return stringValue;
+            }
+            
+            // Par défaut, retourner la valeur brute
+            return value;
+            
+        } catch (NumberFormatException e) {
+            throw new ServletException(
+                "Impossible de convertir '" + stringValue + "' en " + 
+                targetType.getSimpleName() + " pour le paramètre '" + paramName + "'"
+            );
+        }
     }
 }
