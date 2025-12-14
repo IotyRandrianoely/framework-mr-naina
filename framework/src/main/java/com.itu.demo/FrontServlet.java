@@ -9,6 +9,7 @@ import javax.servlet.annotation.WebServlet;
 import java.util.Map;
 import java.util.List;
 import java.lang.reflect.Method;
+import mg.framework.annotations.RestAPI;
 
 @WebServlet(name = "FrontServlet", urlPatterns = {"/"}, loadOnStartup = 1)
 public class FrontServlet extends HttpServlet {
@@ -122,7 +123,33 @@ public class FrontServlet extends HttpServlet {
                 // Sprint 8: Invoquer avec injection automatique de Map<String, Object>
                 Object result = invokeMethodWithParams(mapping, allParams);
                 
-                // Traiter le résultat
+                // Sprint 9: Vérifier si la méthode est annotée @RestAPI
+                boolean isRestAPI = mapping.getMethod().isAnnotationPresent(RestAPI.class);
+                
+                if (isRestAPI) {
+                    // Mode API REST: retourner du JSON
+                    response.setContentType("application/json;charset=UTF-8");
+                    
+                    Object jsonData = null;
+                    
+                    if (result instanceof ApiResponse) {
+                        // Si c'est déjà une ApiResponse, on l'utilise directement
+                        jsonData = result;
+                    } else if (result instanceof ModelView) {
+                        // Si c'est un ModelView, on prend uniquement les données
+                        ModelView mv = (ModelView) result;
+                        jsonData = ApiResponse.success(mv.getData());
+                    } else {
+                        // Sinon, on encapsule le résultat
+                        jsonData = ApiResponse.success(result);
+                    }
+                    
+                    String json = JsonUtil.toJson(jsonData);
+                    response.getWriter().write(json);
+                    return;
+                }
+                
+                // Mode normal: traiter le résultat comme avant
                 if (result instanceof ModelView) {
                     ModelView mv = (ModelView) result;
                     
