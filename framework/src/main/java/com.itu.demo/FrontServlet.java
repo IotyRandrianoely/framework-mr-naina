@@ -12,6 +12,7 @@ import java.lang.reflect.Method;
 import mg.framework.annotations.RestAPI;
 
 @WebServlet(name = "FrontServlet", urlPatterns = {"/"}, loadOnStartup = 1)
+@javax.servlet.annotation.MultipartConfig
 public class FrontServlet extends HttpServlet {
     
     private Router router;
@@ -99,8 +100,31 @@ public class FrontServlet extends HttpServlet {
             // Sprint 8: Créer une Map<String, Object> avec TOUS les paramètres
             java.util.Map<String, Object> allParams = new java.util.HashMap<>();
             
+            // Sprint 10: Créer une Map<String, FileUpload> pour les fichiers uploadés
+            java.util.Map<String, FileUpload> fileParams = new java.util.HashMap<>();
+            
             // Ajouter les path params
             allParams.putAll(pathParams);
+            
+            // Sprint 10: Extraire les fichiers uploadés via getParts()
+            try {
+                for (javax.servlet.http.Part part : request.getParts()) {
+                    String partName = part.getName();
+                    
+                    // Vérifier si c'est un fichier (a un filename) ou un champ normal
+                    String fileName = getFileName(part);
+                    
+                    if (fileName != null && !fileName.isEmpty()) {
+                        // C'est un fichier uploadé
+                        FileUpload fileUpload = FileUpload.fromPart(part);
+                        fileParams.put(partName, fileUpload);
+                        System.out.println("Sprint 10: Fichier uploadé détecté - " + partName + " = " + fileUpload);
+                    }
+                }
+            } catch (Exception e) {
+                // Si getParts() échoue, ce n'est pas un formulaire multipart
+                System.out.println("Sprint 10: Pas de fichier uploadé (requête non-multipart)");
+            }
             
             // Ajouter les query params et form params depuis request.getParameterMap()
             Map<String, String[]> parameterMap = request.getParameterMap();
@@ -120,8 +144,8 @@ public class FrontServlet extends HttpServlet {
             }
             
             try {
-                // Sprint 8: Invoquer avec injection automatique de Map<String, Object>
-                Object result = invokeMethodWithParams(mapping, allParams);
+                // Sprint 10: Invoquer avec injection automatique de Map<String, Object> + Map<String, FileUpload>
+                Object result = invokeMethodWithParams(mapping, allParams, fileParams);
                 
                 // Sprint 9: Vérifier si la méthode est annotée @RestAPI
                 boolean isRestAPI = mapping.getMethod().isAnnotationPresent(RestAPI.class);
@@ -198,13 +222,35 @@ public class FrontServlet extends HttpServlet {
     }
     
     /**
-     * Sprint 8bis: Invoque la méthode du contrôleur avec injection automatique
+     * Extrait le nom du fichier depuis une Part
+     */
+    private String getFileName(javax.servlet.http.Part part) {
+        String contentDisposition = part.getHeader("content-disposition");
+        if (contentDisposition == null) {
+            return null;
+        }
+        
+        for (String token : contentDisposition.split(";")) {
+            if (token.trim().startsWith("filename")) {
+                String fileName = token.substring(token.indexOf('=') + 1).trim()
+                    .replace("\"", "");
+                return fileName.isEmpty() ? null : fileName;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Sprint 8bis + Sprint 10: Invoque la méthode du contrôleur avec injection automatique
      * Supporte:
      * - Map<String, Object> (injection complète des paramètres)
+     * - Map<String, FileUpload> (injection des fichiers uploadés)
+     * - FileUpload (injection d'un fichier individuel)
      * - Types primitifs individuels (int, double, String, etc.)
      * - Objets métiers (binding automatique avec convention objet.propriété)
      */
-    private Object invokeMethodWithParams(Mapping mapping, java.util.Map<String, Object> allParams) throws Exception {
+    private Object invokeMethodWithParams(Mapping mapping, java.util.Map<String, Object> allParams, 
+            java.util.Map<String, FileUpload> fileParams) throws Exception {
         Method method = mapping.getMethod();
         Class<?>[] paramTypes = method.getParameterTypes();
         Object[] args = new Object[paramTypes.length];
@@ -225,11 +271,46 @@ public class FrontServlet extends HttpServlet {
         for (int i = 0; i < paramTypes.length; i++) {
             Class<?> paramType = paramTypes[i];
             
-            // ✅ Sprint 8: CAS 1 - Injection d'une Map<String, Object> complète
+            // ✅ Sprint 10: CAS 1a - Injection d'une Map<String, FileUpload> pour les fichiers
             if (java.util.Map.class.isAssignableFrom(paramType)) {
+                // Vérifier le type générique pour déterminer si c'est une Map de fichiers
+                java.lang.reflect.Parameter param = method.getParameters()[i];
+                String paramName = param.getName();
+                
+                // Convention: si le paramètre s'appelle "files" ou "fileParams", injecter la Map des fichiers
+                if (paramName != null && (paramName.equals("files") || paramName.equals("fileParams") || paramName.equals("fileMap"))) {
+                    args[i] = fileParams;
+                    System.out.println("Sprint 10: Injection de Map<String, FileUpload> avec " + fileParams.size() + " fichiers");
+                    continue;
+                }
+                
+                // ✅ Sprint 8: CAS 1b - Injection d'une Map<String, Object> complète
                 args[i] = allParams;
                 System.out.println("Sprint 8: Injection de Map<String, Object> avec " + allParams.size() + " paramètres");
                 continue;
+            }
+            
+            // ✅ Sprint 10: CAS 2 - Injection d'un FileUpload individuel
+            if (paramType == FileUpload.class) {
+                String paramName = null;
+                try {
+                    java.lang.reflect.Parameter[] methodParams = method.getParameters();
+                    if (i < methodParams.length) {
+                        paramName = methodParams[i].getName();
+                    }
+                } catch (Exception e) {
+                    // Ignore
+                }
+                
+                if (paramName != null && fileParams.containsKey(paramName)) {
+                    args[i] = fileParams.get(paramName);
+                    System.out.println("Sprint 10: Injection de FileUpload " + paramName);
+                    continue;
+                } else {
+                    // Si pas trouvé, null
+                    args[i] = null;
+                    continue;
+                }
             }
             
             // Récupérer le nom du paramètre
